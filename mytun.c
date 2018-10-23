@@ -80,7 +80,7 @@
 struct rbf_notify {
 	 volatile uint8_t kumem_running ;
 	 volatile uint8_t user_waiting;
-	atomic_t notified;
+	//atomic_t notified;
 	struct semaphore sem;
 };
 
@@ -273,8 +273,7 @@ void notify_init(struct rbf_notify *notify)
 	sema_init(&notify->sem, 1);
 	notify->kumem_running = 1;
 	notify->user_waiting = 0;
-	atomic_set(&notify->notified, 0);
-	
+	//atomic_set(&notify->notified, 0);	
 }
 
 #ifdef CONFIG_TUN_VNET_CROSS_LE
@@ -1485,22 +1484,22 @@ done:
 void kumap_device_notify(struct rbf_notify *notify)
 {
 	static unsigned long long jiffies_last = 0;
-	int nt;
+	//int nt;
 	//notify only when userspace listenning 
 	if  (!notify->kumem_running) {
 		return;
 	}
 
-	nt = atomic_read(&notify->notified);
-	if (nt > 10) {
-		//only up(&kumap_sem_notify) 10 times
+	//nt = atomic_read(&notify->notified);
+	if (notify->sem.count > 3) {
+		//only up(&kumap_sem_notify) 3 times, means most 3 task wait in ioctl, i don't want the 'count' add up too big
 		return;
 	}
 	if(notify->user_waiting || jiffies != jiffies_last) {
 		//printk("up  sem,  user_waiting=%d\n", notify->user_waiting);
 		up(&notify->sem);
 		jiffies_last = jiffies;
-		atomic_inc(&notify->notified);
+		//atomic_inc(&notify->notified);
 	}
 }
 
@@ -2060,7 +2059,7 @@ static long mytun_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if(res) {
 				KUMAP_ERROR("wait dsp down interruptable return :%d\n", res);
 			}
-			atomic_set(&notify->notified, 0);
+			//atomic_dec(&notify->notified);
 			notify->user_waiting = 0;
 			break;
 		case TUNGET_PAGE_SIZE:
