@@ -99,6 +99,11 @@ static inline void rbf_dump(rbf_t *rbp)
 	print("\tr: %d, w: %d\n", rbp->hdr.r, rbp->hdr.w);
 }
 
+static inline void rbf_dump_rw(rbf_t *rbp)
+{
+	print("hdr.r : %d, w: %d\n", rbp->hdr.r, rbp->hdr.w);
+}
+
 static inline void *rbf_get_buff(rbf_t* rbp)
 {
 	volatile uint16_t idx = (rbp->hdr.w + 1) % rbp->hdr.count;
@@ -131,5 +136,16 @@ static inline void rbf_release_data(rbf_t *rbp)
 {
 	rbp->hdr.r = (rbp->hdr.r + 1) % rbp->hdr.count;
 }
+
+static inline bool rbf_have_data(rbf_t *rbp)  
+{
+	return  rbp->hdr.r !=rbp->hdr.w;
+}
+
+static inline bool rbf_have_buff(rbf_t* rbp)
+{
+	return ((rbp->hdr.w + 1) % rbp->hdr.count) != rbp->hdr.r;
+}
+
 
 #endif /* __NTRACK_RBF_H__ */

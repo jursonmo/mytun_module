@@ -947,6 +947,9 @@ static netdev_tx_t tun_net_xmit(struct sk_buff *skb, struct net_device *dev)
 		if (!put_to_ringbuf(tun, tfile, skb, tfile->rbf)){
 			goto drop;
 		}
+		//if (tfile->flags & TUN_FASYNC)
+			//kill_fasync(&tfile->fasync, SIGIO, POLL_IN);
+		tfile->socket.sk->sk_data_ready(tfile->socket.sk);//sock_def_readable
 		 rcu_read_unlock();
 		 return NETDEV_TX_OK;
 	 }
@@ -1113,6 +1116,17 @@ static unsigned int tun_chr_poll(struct file *file, poll_table *wait)
 	tun_debug(KERN_INFO, tun, "tun_chr_poll\n");
 
 	poll_wait(file, sk_sleep(sk), wait);
+	
+	//add by mo
+	if (tfile->rbf) {
+		if (rbf_have_data(tfile->rbf)) {
+			mask |= POLLIN | POLLRDNORM;
+		}
+		if (rbf_have_buff(tfile->rbf)) {
+			mask |= POLLOUT | POLLWRNORM;
+		}
+		goto out;
+	}
 
 	if (!skb_queue_empty(&sk->sk_receive_queue))
 		mask |= POLLIN | POLLRDNORM;
@@ -1122,6 +1136,7 @@ static unsigned int tun_chr_poll(struct file *file, poll_table *wait)
 	     sock_writeable(sk)))
 		mask |= POLLOUT | POLLWRNORM;
 
+out:
 	if (tun->dev->reg_state != NETREG_REGISTERED)
 		mask = POLLERR;
 

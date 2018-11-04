@@ -13,6 +13,8 @@
 #include <linux/if.h> 
 #include <stdbool.h>
 
+#include<poll.h>
+
 #include "ntrack_rbf.h"
 
 #define TUNGET_PAGE_SIZE _IOR('T', 230, unsigned int)
@@ -40,12 +42,56 @@ int tun_creat(char *dev, int flags)
 	 return fd; 
 }
 
-int main( void )  
+static int handle_data(rbf_t *rbf)
+{
+	int data_len = 0, total_len = 0;
+	char *user_data = NULL, *data = NULL;
+	while (1) {
+	   data = NULL;
+	   //printf("rbf_get_data starting \n");
+	   //sleep(1);
+	   data = rbf_get_data(rbf);
+	   if (!data) {
+		   printf("no data\n");
+		   break;
+	   }
+	   //printf("rbf_get_data end \n");
+	   memcpy(&data_len, data, 2);
+	   if (data_len > RBF_NODE_SIZE) {
+		   printf("data_len(%d) >RBF_NODE_SIZE(%d)	\n", data_len, RBF_NODE_SIZE);
+		   return -1;
+	   }
+	   printf("data_len(%d)\n", data_len);
+	   user_data = malloc(data_len - 2);
+	   memcpy(user_data, data+2, data_len-2);
+	   //todo: handle user_data
+	   free(user_data);
+	   rbf_release_data(rbf);
+	   total_len += data_len;
+	}
+	return total_len;
+}
+
+int main( int argc, char **argv )  
 {  
-	int tunfd, size, pageSize, mmapSize, data_len;  
-	int cmd, arg; 
+	int tunfd, size, pageSize, mmapSize;  
+	int cmd, arg, use_ioctl = 0, use_poll= 0; 
 	rbf_t *rbf;
-	char *mapBuf = NULL, *data = NULL, *user_data = NULL;
+	char *mapBuf = NULL;
+
+	if (argc != 2) {
+		printf("argc must == 2:  1 means  use_ioctl,  2 means  use_poll\n" );
+		return -1;
+	}
+	printf("argc =%d,  argv[0] =%s,  \n", argc, argv[0] );
+	if (atoi(argv[1]) == 1) {
+		use_ioctl = 1;
+	}else if (atoi(argv[1]) == 2) {
+		use_poll = 1;
+	}else {
+		printf(" 1 means  use_ioctl,  2 means  use_poll\n" );
+		return -1;
+	}
 	
 	char tun_name[IFNAMSIZ]; 
 	tun_name[0]='\0'; 
@@ -84,36 +130,46 @@ int main( void )
 	}
 		
  	cmd =TUN_IOC_SEM_WAIT;   
-  	while (1){
+  	while (use_ioctl){
 		printf("ioctl  ing \n");
 		if (ioctl(tunfd, cmd, &arg)< 0) {
 			printf("ioctl fail\n");
 			return -1;
 		}
-	
-		 while (1){
-			data = NULL;
-			//printf("rbf_get_data starting \n");
-			//sleep(1);
-			data = rbf_get_data(rbf);
-			if (!data) {
-				printf("no data\n");
-				break;
-			}
-			//printf("rbf_get_data end \n");
-			memcpy(&data_len, data, 2);
-			if (data_len > RBF_NODE_SIZE) {
-				printf("data_len(%d) >RBF_NODE_SIZE(%d)  \n", data_len, RBF_NODE_SIZE);
-				return -1;
-			}
-			printf("data_len(%d)\n", data_len);
-			user_data = malloc(data_len-2);
-			memcpy(user_data, data+2, data_len-2);
-			free(user_data);
-			rbf_release_data(rbf);			
-		 }		
-  }
+		if (handle_data(rbf) <0 ) {
+			break;
+		}
+  	}
 
+	if (use_poll){
+		struct pollfd pollfds;
+		int timeout;
+		
+		timeout = 5000;
+		pollfds.fd = tunfd;	
+		pollfds.events = POLLIN|POLLPRI;
+		for(;;){
+			switch(poll(&pollfds, 1, timeout)){
+			case -1:	
+				printf("poll error \r\n");
+			break;
+			case 0:
+				printf("time out \r\n");
+				if (rbf_have_data(rbf)) {
+				   printf("oh, there is  data in ringbuf, something wrong ?\n");
+				}
+				rbf_dump_rw(rbf);
+			break;
+			default:	
+				printf("sockfd have some event \r\n");
+				printf("event value is 0x%x \r\n", pollfds.revents);
+				if (handle_data(rbf) <0 ) {
+					goto out;
+				}
+			break;
+			}
+		}
+	}
  out: 
 
 	munmap(mapBuf, mmapSize);
