@@ -152,11 +152,14 @@ int main( int argc, char **argv )
 			switch(poll(&pollfds, 1, timeout)){
 			case -1:	
 				printf("poll error \r\n");
+				if (errno != EINTR) {
+					return -1;
+				}
 			break;
 			case 0:
 				printf("time out \r\n");
 				if (rbf_have_data(rbf)) {
-				   printf("oh, there is  data in ringbuf, something wrong ?\n");
+				   printf("oh, there is  data in ringbuf, something wrong ?\n");//if timeout, before back to userspace, kernel also will poll to check if there have events, and return evnets .
 				}
 				rbf_dump_rw(rbf);
 			break;
