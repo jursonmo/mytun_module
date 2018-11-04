@@ -107,8 +107,8 @@ int main( void )
 				return -1;
 			}
 			printf("data_len(%d)\n", data_len);
-			user_data = malloc(data_len);
-			memcpy(user_data, data+2, data_len);
+			user_data = malloc(data_len-2);
+			memcpy(user_data, data+2, data_len-2);
 			free(user_data);
 			rbf_release_data(rbf);			
 		 }		
