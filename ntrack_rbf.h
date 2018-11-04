@@ -28,6 +28,8 @@
 /* 
 * ring buffer system defines. 
 */
+int rbf_order = 6;
+#define RBF_MAGIC 12345
 #define RBF_NODE_SIZE	1600 //32 //(1024 * 2)
 
 typedef struct ringbuffer_header {
@@ -74,7 +76,7 @@ static inline rbf_t* rbf_init(void *mem, uint32_t size)
 	rbp->hdr.size = size - offsetof(rbf_t, buffer);//sizeof(rbf_hdr_t);
 	rbp->hdr.node_size = RBF_NODE_SIZE;
 	rbp->hdr.count = rbp->hdr.size / RBF_NODE_SIZE;
-	rbp->magic = 12345;
+	rbp->magic = RBF_MAGIC;
 	if (rbf_size(rbp) != size) {
 		print("fail : rbp->hdr.size =%u+ sizeof(rbf_hdr_t)=%ld, rbf_size(rbp) =%u, size=%u, not equal\n", rbp->hdr.size,  sizeof(rbf_hdr_t) , rbf_size(rbp), size);
 		return NULL;

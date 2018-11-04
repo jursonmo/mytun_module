@@ -84,8 +84,6 @@ struct rbf_notify {
 	struct semaphore sem;
 };
 
-int rbf_order = 6;
-
 #define TUNGET_PAGE_SIZE _IOR('T', 230, unsigned int)
 #define TUN_IOC_SEM_WAIT _IOW('T', 231, unsigned int)
 
@@ -944,7 +942,7 @@ static netdev_tx_t tun_net_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	nf_reset(skb);
 
-	//if (tfile->rbf) {
+	//add by mo
 	if ( tfile->rbf) {
 		if (!put_to_ringbuf(tun, tfile, skb, tfile->rbf)){
 			goto drop;
