@@ -90,7 +90,7 @@ int main( int argc, char **argv )
 		use_poll = 1;
 	}else {
 		printf(" 1 means  use_ioctl,  2 means  use_poll\n" );
-		return -1;
+		//return -1;
 	}
 	
 	char tun_name[IFNAMSIZ]; 
@@ -102,6 +102,20 @@ int main( int argc, char **argv )
 		perror("tun_create"); 
 		return -1; 
 	} 
+	if (!use_ioctl && !use_poll) {
+		printf(" normal mode \n" );
+		char buf[2048];
+		int ret;
+		while(1) {
+			ret = read(tunfd, buf, sizeof(buf));
+			if (ret <0 )  {
+				perror("read");
+				return ret;
+			}
+			printf("read %d bytes\n", ret); 
+			//TODO:handle buffer
+		}
+	}
 	//buffer = (char *)malloc(pageSize * (1 << rbf_order));  
 	//memset(buffer, 0, );  
 	pageSize = (int)(sysconf(_SC_PAGESIZE));
