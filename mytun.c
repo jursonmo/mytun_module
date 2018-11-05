@@ -1733,10 +1733,21 @@ out:
 	return ret;
 }
 
+static int
+tun_setsockopt(struct socket *sock, int level, int optname, char __user *optval, unsigned int optlen)
+{
+	//can not be here, socket.c setsockopt syscall --> sockfd_lookup_light --> sock_from_file will check if (file->f_op == &socket_file_ops)
+	if (sock)
+		printk("have sock \n");
+	printk("======level=%d ,  optname=%d======\n", level,  optname);
+	return -1;
+}
+
 /* Ops structure to mimic raw sockets with tun */
 static const struct proto_ops tun_socket_ops = {
 	.sendmsg = tun_sendmsg,
 	.recvmsg = tun_recvmsg,
+	.setsockopt =	tun_setsockopt,
 };
 
 static struct proto tun_proto = {

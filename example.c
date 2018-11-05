@@ -78,7 +78,8 @@ int main( int argc, char **argv )
 	int cmd, arg, use_ioctl = 0, use_poll= 0; 
 	rbf_t *rbf;
 	char *mapBuf = NULL;
-
+	int ret;
+	
 	if (argc != 2) {
 		printf("argc must == 2:  1 means  use_ioctl,  2 means  use_poll\n" );
 		return -1;
@@ -105,7 +106,6 @@ int main( int argc, char **argv )
 	if (!use_ioctl && !use_poll) {
 		printf(" normal mode \n" );
 		char buf[2048];
-		int ret;
 		while(1) {
 			ret = read(tunfd, buf, sizeof(buf));
 			if (ret <0 )  {
@@ -116,6 +116,14 @@ int main( int argc, char **argv )
 			//TODO:handle buffer
 		}
 	}
+	
+	//testing
+	ret = setsockopt(tunfd, 1, 2, NULL, 0);
+	if (ret < 0) {
+		perror("  setsockopt fail \n");
+		//return ret;
+	}
+	
 	//buffer = (char *)malloc(pageSize * (1 << rbf_order));  
 	//memset(buffer, 0, );  
 	pageSize = (int)(sysconf(_SC_PAGESIZE));
