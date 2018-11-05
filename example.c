@@ -19,6 +19,7 @@
 
 #define TUNGET_PAGE_SIZE _IOR('T', 230, unsigned int)
 #define TUN_IOC_SEM_WAIT _IOW('T', 231, unsigned int)
+#define  TUNSET_RBF  _IOW('T', 232, unsigned int)
 
 int tun_creat(char *dev, int flags) 
 { 
@@ -74,7 +75,7 @@ static int handle_data(rbf_t *rbf)
 
 int main( int argc, char **argv )  
 {  
-	int tunfd, size, pageSize, mmapSize;  
+	int tunfd, size = 0, pageSize = 0, mmapSize = 0;  
 	int cmd, arg, use_ioctl = 0, use_poll= 0; 
 	rbf_t *rbf;
 	char *mapBuf = NULL;
@@ -124,11 +125,28 @@ int main( int argc, char **argv )
 		//return ret;
 	}
 	
-	//buffer = (char *)malloc(pageSize * (1 << rbf_order));  
-	//memset(buffer, 0, );  
-	pageSize = (int)(sysconf(_SC_PAGESIZE));
-	mmapSize = pageSize * (1 << rbf_order);
-	printf("sysconf  pageSize =%d, mmapSize=%d \n", pageSize, mmapSize);
+	mmapSize = 5000;
+	struct ringbuf_req req;
+	req.mem_size = mmapSize;
+	req.packet_size = 2048;
+	if (ioctl(tunfd, TUNSET_RBF, &req)< 0) {
+		printf("ioctl set ringbuf fail \n"); 
+		return -1;
+	}
+
+	if (!mmapSize) {
+		pageSize = (int)(sysconf(_SC_PAGESIZE));
+		mmapSize = pageSize * (1 << rbf_order);
+		printf("sysconf  pageSize =%d, mmapSize=%d \n", pageSize, mmapSize);
+		printf("ioctl  ing, get page size \n");
+		if (ioctl(tunfd, TUNGET_PAGE_SIZE, &arg)< 0) {
+			printf("ioctl fail\n");
+			return -1;
+		}
+		if (arg != pageSize) {
+			printf("ioctl get page size =%d, sysconf  pageSize =%d, two is not equal\n", arg, pageSize);
+		}
+	}
 	
 	mapBuf = mmap(NULL, mmapSize, PROT_READ|PROT_WRITE, MAP_SHARED, tunfd, 0);
 	if (!mapBuf){
@@ -141,15 +159,6 @@ int main( int argc, char **argv )
 		return -1;
 	}
 	
-	cmd =TUNGET_PAGE_SIZE;   
-	printf("ioctl  ing, get page size \n");
-	if (ioctl(tunfd, cmd, &arg)< 0) {
-		printf("ioctl fail\n");
-		return -1;
-	}
-	if (arg != pageSize) {
-		printf("ioctl get page size =%d, sysconf  pageSize =%d, two is not equal\n", arg, pageSize);
-	}
 		
  	cmd =TUN_IOC_SEM_WAIT;   
   	while (use_ioctl){

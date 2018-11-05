@@ -24,13 +24,17 @@
 #define print printf
 
 #endif /* __KERNEL__ */
+struct ringbuf_req {
+	unsigned int mem_size;
+	unsigned int packet_size;
+};
 
 /* 
 * ring buffer system defines. 
 */
 int rbf_order = 6;
 #define RBF_MAGIC 12345
-#define RBF_NODE_SIZE	1600 //32 //(1024 * 2)
+#define RBF_NODE_SIZE	(1024 * 2)  //32 //1600
 
 typedef struct ringbuffer_header {
 	/* idx read, write record the idx[N] */
@@ -62,7 +66,7 @@ uint32_t rbf_node_size(rbf_t *rbf)
 	return rbf->hdr.node_size;
 }
 
-static inline rbf_t* rbf_init(void *mem, uint32_t size)
+static inline rbf_t* rbf_init(void *mem, uint32_t size, uint16_t node_size)
 {
 	rbf_t *rbp = (rbf_t*)mem;
 	//WARN_ON((size % L1_CACHE_BYTES) || (RBF_NODE_SIZE % L1_CACHE_BYTES));
@@ -74,8 +78,12 @@ static inline rbf_t* rbf_init(void *mem, uint32_t size)
 	#endif
 	memset(rbp, 0, sizeof(rbf_t));
 	rbp->hdr.size = size - offsetof(rbf_t, buffer);//sizeof(rbf_hdr_t);
-	rbp->hdr.node_size = RBF_NODE_SIZE;
-	rbp->hdr.count = rbp->hdr.size / RBF_NODE_SIZE;
+	if (!node_size) {
+		rbp->hdr.node_size = node_size;
+	}else {
+		rbp->hdr.node_size = RBF_NODE_SIZE;
+	}
+	rbp->hdr.count = rbp->hdr.size / rbp->hdr.node_size;
 	rbp->magic = RBF_MAGIC;
 	if (rbf_size(rbp) != size) {
 		print("fail : rbp->hdr.size =%u+ sizeof(rbf_hdr_t)=%ld, rbf_size(rbp) =%u, size=%u, not equal\n", rbp->hdr.size,  sizeof(rbf_hdr_t) , rbf_size(rbp), size);
