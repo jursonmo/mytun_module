@@ -943,7 +943,7 @@ static netdev_tx_t tun_net_xmit(struct sk_buff *skb, struct net_device *dev)
 	nf_reset(skb);
 
 	//add by mo
-	if ( tfile->rbf) {
+	if (tfile->rbf) {
 		if (!put_to_ringbuf(tun, tfile, skb, tfile->rbf)){
 			goto drop;
 		}
@@ -2453,19 +2453,6 @@ static int tun_chr_open(struct inode *inode, struct file * file)
 	INIT_LIST_HEAD(&tfile->next);
 
 	sock_set_flag(&tfile->sk, SOCK_ZEROCOPY);
-
-	//add by mo
-	spin_lock_init(&tfile->rbf_lock);	
-	tfile->rbf = NULL;
-	tfile->rbf =rbf_init((void*)__get_free_pages(GFP_KERNEL, rbf_order), PAGE_SIZE*(1 <<rbf_order));
-	if (!tfile->rbf) {
-		printk("rbf_init fail\n");
-		return 0;
-	}
-	notify_init(&tfile->notify);
-	KUMAP_INFO("TUN_IOC_SEM_WAIT=%lu, TUNGET_PAGE_SIZE=%lu", TUN_IOC_SEM_WAIT, TUNGET_PAGE_SIZE);
-	rbf_dump(tfile->rbf);
-	//end by mo
 	return 0;
 }
 
@@ -2475,8 +2462,10 @@ static int tun_chr_close(struct inode *inode, struct file *file)
 
 	tun_detach(tfile, true);
 	//add by mo
-	free_pages((unsigned long)tfile->rbf, rbf_order);
-	tfile->rbf = NULL;
+	if (tfile->rbf) {		
+		free_pages((unsigned long)tfile->rbf, rbf_order);
+		tfile->rbf = NULL;
+	}
 	//end by mo
 	return 0;
 }
@@ -2491,11 +2480,23 @@ static int tun_chr_mmap(struct file *file, struct vm_area_struct *vma)
 	unsigned long end  =  vma->vm_end;
 	unsigned long mapped_size = vma->vm_end - vma->vm_start;
 	struct tun_file *tfile = file->private_data;
-	char *addr = (char *)tfile->rbf;
-	if (!addr) {
+	
+	//add by mo
+	char *addr = NULL;
+	
+	spin_lock_init(&tfile->rbf_lock);	
+	tfile->rbf = NULL;
+	tfile->rbf =rbf_init((void*)__get_free_pages(GFP_KERNEL, rbf_order), PAGE_SIZE*(1 <<rbf_order));
+	if (!tfile->rbf) {
+		printk("rbf_init fail\n");
 		return -ENOMEM;
 	}
-
+	notify_init(&tfile->notify);
+	KUMAP_INFO("TUN_IOC_SEM_WAIT=%lu, TUNGET_PAGE_SIZE=%lu", TUN_IOC_SEM_WAIT, TUNGET_PAGE_SIZE);
+	rbf_dump(tfile->rbf);
+	addr = (char *)tfile->rbf;
+	//end by mo
+	
 	//mapped_size = n * 4096, at lease 4096
 	if ((mapped_size + vma->vm_pgoff * PAGE_SIZE) > rbf_size(tfile->rbf)) {
 		printk("shm: shm get mem size failed.\n"
