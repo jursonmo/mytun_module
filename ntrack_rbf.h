@@ -93,7 +93,9 @@ static inline void rbf_dump_rw(rbf_t *rbp)
 
 static inline void *rbf_get_buff(rbf_t* rbp)
 {
-	volatile uint16_t idx = (rbp->hdr.w + 1) % rbp->hdr.count;
+	
+	//volatile uint16_t idx = (rbp->hdr.w + 1) % rbp->hdr.count;
+	volatile uint16_t idx = (rbp->hdr.w + 1) != rbp->hdr.count? rbp->hdr.w + 1 : 0;
 
 	/* overflow ? */
 	if (idx != rbp->hdr.r) {
@@ -105,7 +107,8 @@ static inline void *rbf_get_buff(rbf_t* rbp)
 
 static inline void rbf_release_buff(rbf_t* rbp)
 {
-	rbp->hdr.w = (rbp->hdr.w + 1) % rbp->hdr.count;
+	//rbp->hdr.w = (rbp->hdr.w + 1) % rbp->hdr.count;
+	rbp->hdr.w = (rbp->hdr.w + 1) != rbp->hdr.count? rbp->hdr.w + 1 : 0;
 }
 
 static inline void *rbf_get_data(rbf_t *rbp)
@@ -121,7 +124,8 @@ static inline void *rbf_get_data(rbf_t *rbp)
 
 static inline void rbf_release_data(rbf_t *rbp)
 {
-	rbp->hdr.r = (rbp->hdr.r + 1) % rbp->hdr.count;
+	//rbp->hdr.r = (rbp->hdr.r + 1) % rbp->hdr.count;
+	rbp->hdr.r = (rbp->hdr.r + 1) != rbp->hdr.count? rbp->hdr.r + 1 : 0;
 }
 
 static inline bool rbf_have_data(rbf_t *rbp)  
