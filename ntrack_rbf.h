@@ -1,29 +1,8 @@
 #ifndef __NTRACK_RBF_H__
 #define __NTRACK_RBF_H__
 
-#ifdef __KERNEL__
+#include "common.h"
 
-#include <linux/kernel.h>
-#include <linux/module.h>
-#define print printk
-#else /* end kernel */
-
-#define _GNU_SOURCE
-#include <sched.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <inttypes.h>
-#include <fcntl.h>
-
-#include <sys/wait.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
-#define print printf
-
-#endif /* __KERNEL__ */
 struct ringbuf_req {
 	unsigned int mem_size;
 	unsigned int packet_size;

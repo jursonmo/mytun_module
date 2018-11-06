@@ -17,9 +17,6 @@
 
 #include "ntrack_rbf.h"
 
-#define TUNGET_PAGE_SIZE _IOR('T', 230, unsigned int)
-#define TUN_IOC_SEM_WAIT _IOW('T', 231, unsigned int)
-#define  TUNSET_RBF  _IOW('T', 232, unsigned int)
 
 int tun_creat(char *dev, int flags) 
 { 
