@@ -73,7 +73,7 @@ static int handle_data(rbf_t *rbf)
 int main( int argc, char **argv )  
 {  
 	int tunfd, size = 0, pageSize = 0, mmapSize = 0;  
-	int cmd, arg, use_ioctl = 0, use_poll= 0; 
+	int cmd, arg, use_ioctl = 0, use_poll= 0, normal = 0; 
 	rbf_t *rbf;
 	char *mapBuf = NULL;
 	int ret;
@@ -83,13 +83,19 @@ int main( int argc, char **argv )
 		return -1;
 	}
 	printf("argc =%d,  argv[0] =%s,  \n", argc, argv[0] );
-	if (atoi(argv[1]) == 1) {
-		use_ioctl = 1;
-	}else if (atoi(argv[1]) == 2) {
-		use_poll = 1;
-	}else {
-		printf(" 1 means  use_ioctl,  2 means  use_poll\n" );
-		//return -1;
+	switch (atoi(argv[1])) {
+		case 0:
+			normal = 1;
+		break;
+		case 1:
+			use_ioctl = 1;
+		break;
+		case 2:
+			use_poll = 1;
+		break;
+		default:
+			printf(" 0 means normal mode and not use ringbuf, 1 means use ringbuf and use ioctl to wait new data,  2 means  use ringbuf and use poll to wait new data,\n" );
+			return -1;
 	}
 	
 	char tun_name[IFNAMSIZ]; 
@@ -101,7 +107,7 @@ int main( int argc, char **argv )
 		perror("tun_create"); 
 		return -1; 
 	} 
-	if (!use_ioctl && !use_poll) {
+	if (normal) {
 		printf(" normal mode \n" );
 		char buf[2048];
 		while(1) {
