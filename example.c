@@ -40,6 +40,21 @@ int tun_creat(char *dev, int flags)
 	 return fd; 
 }
 
+static int send_data(rbf_t *rbf)
+{
+	char *buf = NULL;
+	buf = rbf_get_buff(rbf);
+	if (!buf) {
+		printf("no available buf \n");
+		return 0;
+	}
+	//todo: put data to buf
+	printf("have buf \n");
+	rbf_dump_rw(rbf);
+	rbf_release_buff(rbf);
+	return 1;
+}
+
 static int handle_data(rbf_t *rbf)
 {
 	int data_len = 0, total_len = 0;
@@ -185,7 +200,7 @@ int main( int argc, char **argv )
 		
 		timeout = 5000;
 		pollfds.fd = tunfd;	
-		pollfds.events = POLLIN|POLLPRI;
+		pollfds.events = POLLIN|POLLPRI|POLLOUT|POLLWRNORM;
 		for(;;){
 			switch(poll(&pollfds, 1, timeout)){
 			case -1:	
@@ -204,8 +219,13 @@ int main( int argc, char **argv )
 			default:	
 				printf("sockfd have some event \r\n");
 				printf("event value is 0x%x \r\n", pollfds.revents);
-				if (handle_data(rbf) <0 ) {
-					goto out;
+				if (pollfds.revents & (POLLIN|POLLPRI)) {
+					if (handle_data(rbf) <0 ) {
+						goto out;
+					}
+				}
+				if (pollfds.revents & (POLLOUT|POLLWRNORM)) {
+					send_data(tx_rbf);
 				}
 			break;
 			}
