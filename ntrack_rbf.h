@@ -45,6 +45,11 @@ uint32_t rbf_node_size(rbf_t *rbf)
 	return rbf->hdr.node_size;
 }
 
+void* rbf_tail(rbf_t *rbf)
+{
+	return &rbf->buffer[rbf->hdr.size];
+}
+
 static inline rbf_t* rbf_init(void *mem, uint32_t size, uint16_t node_size)
 {
 	rbf_t *rbp = (rbf_t*)mem;

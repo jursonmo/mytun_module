@@ -170,9 +170,11 @@ struct tun_file {
 	};
 	struct list_head next;
 	struct tun_struct *detached;
-	rbf_t *rbf;
+	rbf_t *rbf;	
 	spinlock_t rbf_lock;
 	struct rbf_notify notify; 
+	rbf_t *tx_rbf;
+	unsigned long mmap_buf_size;
 };
 
 struct tun_flow_entry {
@@ -1079,11 +1081,11 @@ static unsigned int tun_chr_poll(struct file *file, poll_table *wait)
 	poll_wait(file, sk_sleep(sk), wait);
 	
 	//add by mo
-	if (tfile->rbf) {
+	if (tfile->rbf && tfile->tx_rbf) {
 		if (rbf_have_data(tfile->rbf)) {
 			mask |= POLLIN | POLLRDNORM;
 		}
-		if (rbf_have_buff(tfile->rbf)) {
+		if (rbf_have_buff(tfile->tx_rbf)) {
 			mask |= POLLOUT | POLLWRNORM;
 		}
 		goto out;
@@ -1697,7 +1699,7 @@ out:
 static int
 tun_setsockopt(struct socket *sock, int level, int optname, char __user *optval, unsigned int optlen)
 {
-	//can not be here, socket.c setsockopt syscall --> sockfd_lookup_light --> sock_from_file will check if (file->f_op == &socket_file_ops)
+	//can not be here, socket.c setsockopt SYSCALL_DEFINE5 --> sockfd_lookup_light --> sock_from_file will check if (file->f_op == &socket_file_ops)
 	if (sock)
 		printk("have sock \n");
 	printk("======level=%d ,  optname=%d======\n", level,  optname);
@@ -2032,14 +2034,65 @@ unlock:
 	rtnl_unlock();
 	return ret;
 }
+
+static long mytun_set_rb(struct tun_file *tfile,  unsigned long arg)
+{	
+	struct ringbuf_req req;
+	int order;
+	void __user* argp = (void __user*)arg;
+	void *addr = NULL;
+	
+	printk("TUNSET_RBF \n");
+	if (copy_from_user(&req, argp, sizeof(struct ringbuf_req))){
+		printk(KERN_WARNING "copy_from_user fail\n");
+		goto err_out;
+	}
+	if (tfile->rbf) {
+		printk(KERN_WARNING "ringbuf have seted\n");
+		goto err_out;
+	}
+	
+	order = get_order(req.mem_size);
+	//roundup_pow_of_two(req.mem_size);
+	printk(KERN_INFO "ringbuf size=%d, order =%d\n", req.mem_size, order);
+	addr = (void*)__get_free_pages(GFP_KERNEL, order);
+	if (!addr)
+		return -EFAULT;
+	tfile->rbf = rbf_init(addr, PAGE_SIZE*(1 <<(order-1)), req.packet_size);
+	if (!tfile->rbf)
+		return -EFAULT;
+	spin_lock_init(&tfile->rbf_lock);	
+	notify_init(&tfile->notify);
+	rbf_dump(tfile->rbf);
+	
+	tfile->tx_rbf = rbf_init((void *)rbf_tail(tfile->rbf) , PAGE_SIZE*(1 <<(order-1)), req.packet_size);
+	if (!tfile->tx_rbf) {
+		goto free_rbf;
+	}
+	rbf_dump(tfile->tx_rbf);
+	
+	printk("tail: %p, addr + half =%p , tx_rbf=%p====\n", rbf_tail(tfile->rbf), (char *)addr + PAGE_SIZE*(1 <<(order-1)), tfile->tx_rbf);	
+	//check 
+	if (rbf_size(tfile->rbf) !=rbf_size(tfile->tx_rbf) || rbf_tail(tfile->rbf) != (void*)tfile->tx_rbf){
+		printk("check fail ==========\n");
+		goto free_rbf;
+	}
+	tfile->mmap_buf_size = PAGE_SIZE*(1 <<order);
+	return 0;
+	
+free_rbf:
+	free_pages((unsigned long)tfile->rbf, get_order(rbf_size(tfile->rbf))+1);
+	tfile->rbf = NULL;
+err_out:
+	return -EFAULT;
+
+}
+
 static long mytun_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int res = 0;
 	struct tun_file *tfile = filp->private_data;
 	struct rbf_notify *notify = &tfile->notify;
-	struct ringbuf_req req;
-	int order;
-	void __user* argp = (void __user*)arg;
 	switch(cmd) {
 		case TUN_IOC_SEM_WAIT:
 			notify->user_waiting= 1;
@@ -2053,23 +2106,7 @@ static long mytun_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		case TUNGET_PAGE_SIZE:
 			return put_user(PAGE_SIZE, (unsigned int __user*)arg);
 		case TUNSET_RBF:
-			printk("TUNSET_RBF \n");
-			if (copy_from_user(&req, argp, sizeof(struct ringbuf_req))){
-				printk(KERN_WARNING "copy_from_user fail\n");
-				return -EFAULT;
-			}
-			if (tfile->rbf) {
-				printk(KERN_WARNING "ringbuf have seted\n");
-				return -EFAULT;
-			}
-			order = get_order(req.mem_size);
-			//roundup_pow_of_two(req.mem_size);
-			printk(KERN_INFO "ringbuf size=%d, order =%d\n", req.mem_size, order);
-			tfile->rbf = rbf_init((void*)__get_free_pages(GFP_KERNEL, order), PAGE_SIZE*(1 <<order), req.packet_size);
-			if (!tfile->rbf)
-				return -EFAULT;
-			notify_init(&tfile->notify);
-			rbf_dump(tfile->rbf);
+			return mytun_set_rb(tfile, arg);
 			break;
 		default:
 			KUMAP_ERROR("unknow ioctl cmd: %d, %lu\n", cmd, arg);
@@ -2448,6 +2485,7 @@ static int tun_chr_open(struct inode *inode, struct file * file)
 
 	sock_set_flag(&tfile->sk, SOCK_ZEROCOPY);
 	tfile->rbf = NULL;
+	tfile->tx_rbf = NULL;
 	return 0;
 }
 
@@ -2461,6 +2499,12 @@ static int tun_chr_close(struct inode *inode, struct file *file)
 		free_pages((unsigned long)tfile->rbf, get_order(rbf_size(tfile->rbf)));
 		tfile->rbf = NULL;
 	}
+	
+	if (tfile->tx_rbf) {		
+		free_pages((unsigned long)tfile->tx_rbf, get_order(rbf_size(tfile->tx_rbf)));
+		tfile->tx_rbf = NULL;
+	}
+	
 	//end by mo
 	return 0;
 }
@@ -2479,6 +2523,8 @@ static int tun_chr_mmap(struct file *file, struct vm_area_struct *vma)
 	char *addr = NULL;
 	int order = 0;
 	if (!tfile->rbf) {
+		return -ENOMEM;
+		/*
 		spin_lock_init(&tfile->rbf_lock);		
 		tfile->rbf =rbf_init((void*)__get_free_pages(GFP_KERNEL, rbf_order), PAGE_SIZE*(1 <<rbf_order), 0);
 		if (!tfile->rbf) {
@@ -2488,20 +2534,23 @@ static int tun_chr_mmap(struct file *file, struct vm_area_struct *vma)
 		notify_init(&tfile->notify);
 		KUMAP_INFO("TUN_IOC_SEM_WAIT=%lu, TUNGET_PAGE_SIZE=%lu", TUN_IOC_SEM_WAIT, TUNGET_PAGE_SIZE);
 		rbf_dump(tfile->rbf);
+		*/
 	}
 	addr = (char *)tfile->rbf;
 	
 	//mapped_size = n * 4096, at lease 4096
-	if ((mapped_size + vma->vm_pgoff * PAGE_SIZE) > rbf_size(tfile->rbf)) {
+	if ((mapped_size + vma->vm_pgoff * PAGE_SIZE) > tfile->mmap_buf_size) {
 		printk("shm: shm get mem size failed.\n"
 				"mapsize: %ld, pgoff: %lu, memsize: %ldk.\n",
 				(unsigned long)mapped_size, (unsigned long)vma->vm_pgoff, (unsigned long)rbf_size(tfile->rbf));
 
 		return -ENOMEM;
 	}
-		vma->vm_flags |= VM_IO;
+	vma->vm_flags |= VM_IO;
 	//vma->vm_flags |= VM_RESERVED;
-	order = get_order(rbf_size(tfile->rbf));
+	
+	//order = get_order(rbf_size(tfile->rbf))+1;
+	order = get_order(tfile->mmap_buf_size);
 	for (i = 0; i < 1<< order && start + PAGE_SIZE <= end; i++ ){
 		res = remap_pfn_range(vma,
 			start,

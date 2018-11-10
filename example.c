@@ -161,7 +161,11 @@ int main( int argc, char **argv )
 		printf("rbf->magic =%d\n", rbf->magic);
 		return -1;
 	}
-	
+	tx_rbf = (rbf_t *)rbf_tail(rbf);
+	if (tx_rbf->magic != RBF_MAGIC) {
+		printf("tx_rbf->magic =%d\n", tx_rbf->magic);
+		return -1;
+	}
 		
  	cmd =TUN_IOC_SEM_WAIT;   
   	while (use_ioctl){
@@ -209,6 +213,7 @@ int main( int argc, char **argv )
 	}
  out: 
 
+	//munmap(mapBuf, rbf_size(rbf)+rbf_size(tx_rbf));
 	munmap(mapBuf, mmapSize);
 	close(tunfd);
 	return 0;  
