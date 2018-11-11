@@ -8,6 +8,11 @@ struct ringbuf_req {
 	unsigned int packet_size;
 };
 
+struct node_data {
+	uint16_t  data_len;
+	uint8_t data_buf[0];
+};
+
 /* 
 * ring buffer system defines. 
 */

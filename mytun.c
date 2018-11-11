@@ -174,6 +174,7 @@ struct tun_file {
 	spinlock_t rbf_lock;
 	struct rbf_notify notify; 
 	rbf_t *tx_rbf;
+	struct tasklet_struct tx_tasklet;
 	unsigned long mmap_buf_size;
 };
 
@@ -1085,7 +1086,9 @@ static unsigned int tun_chr_poll(struct file *file, poll_table *wait)
 		if (rbf_have_data(tfile->rbf)) {
 			mask |= POLLIN | POLLRDNORM;
 		}
-		if (rbf_have_buff(tfile->tx_rbf)) {
+		if (rbf_have_buff(tfile->tx_rbf) ||
+		   (!test_and_set_bit(SOCKWQ_ASYNC_NOSPACE, &sk->sk_socket->flags) &&
+	    	   rbf_have_buff(tfile->tx_rbf))) {
 			mask |= POLLOUT | POLLWRNORM;
 		}
 		goto out;
@@ -1331,11 +1334,30 @@ static ssize_t tun_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	struct tun_struct *tun = tun_get(file);
 	struct tun_file *tfile = file->private_data;
 	ssize_t result;
-
+	//add by mo
+	struct node_data* data=NULL;
+	int noblock = 1;
+	struct iov_iter rb_iov;
+	ssize_t ret;
+	
 	if (!tun)
 		return -EBADFD;
 
-	result = tun_get_user(tun, tfile, NULL, from, file->f_flags & O_NONBLOCK);
+	//add by mo 
+	if (tfile->tx_rbf) {
+		while((data = (struct node_data*)rbf_get_data(tfile->tx_rbf)) != NULL) {
+			rb_iov.iov_offset = offsetof(struct node_data, data_buf);
+			rb_iov.count = (ssize_t)data->data_len;
+			//ret = tun_get_user(tun, tfile, NULL, &rb_iov, noblock);
+			ret  = rb_iov.count; //testing 
+			if (ret > 0 ) {
+				result += ret;
+			}
+			rbf_release_data(tfile->tx_rbf);
+		}
+		tfile->sk.sk_write_space(&tfile->sk);
+	}else
+		result = tun_get_user(tun, tfile, NULL, from, file->f_flags & O_NONBLOCK);
 
 	tun_put(tun);
 	return result;
@@ -1636,19 +1658,29 @@ static void tun_sock_write_space(struct sock *sk)
 {
 	struct tun_file *tfile;
 	wait_queue_head_t *wqueue;
-
+	
+	tfile = container_of(sk, struct tun_file, sk);	
+	if (tfile->tx_rbf) {
+		if (!rbf_have_buff(tfile->tx_rbf))
+			return;
+		//printk("--------tun_sock_write_space 22222222 -------\n");
+		if (!test_and_clear_bit(SOCKWQ_ASYNC_NOSPACE, &sk->sk_socket->flags))
+			return;
+		//printk("--------tun_sock_write_space 3333333 -------\n");
+		goto wakeup;
+	}
 	if (!sock_writeable(sk))
 		return;
-
+	
 	if (!test_and_clear_bit(SOCKWQ_ASYNC_NOSPACE, &sk->sk_socket->flags))
 		return;
-
+wakeup:	
 	wqueue = sk_sleep(sk);
 	if (wqueue && waitqueue_active(wqueue))
 		wake_up_interruptible_sync_poll(wqueue, POLLOUT |
 						POLLWRNORM | POLLWRBAND);
 
-	tfile = container_of(sk, struct tun_file, sk);
+	//tfile = container_of(sk, struct tun_file, sk);
 	kill_fasync(&tfile->fasync, SIGIO, POLL_OUT);
 }
 
@@ -2033,6 +2065,56 @@ static int tun_set_queue(struct file *file, struct ifreq *ifr)
 unlock:
 	rtnl_unlock();
 	return ret;
+}
+
+static void tun_tasklet(unsigned long _tfile)
+{
+	struct tun_file *tfile = (struct tun_file *)_tfile;
+	rbf_t* tx_rbf = tfile->tx_rbf;
+	struct node_data* data = NULL;
+	struct tun_pi pi = { 0, cpu_to_be16(ETH_P_IP) };
+	struct sk_buff *skb;
+	struct tun_struct *tun = __tun_get(tfile);		
+	if (!tun)
+		return ;	
+	
+	if (!tx_rbf) {
+		goto out;
+	}
+	
+	while((data = (struct node_data*)rbf_get_data(tx_rbf)) != NULL) {
+		//todo : alloc skb
+		switch (tun->flags & TUN_TYPE_MASK) {
+			case IFF_TUN:
+			if (tun->flags & IFF_NO_PI) {
+				switch (skb->data[0] & 0xf0) {
+				case 0x40:
+					pi.proto = htons(ETH_P_IP);
+					break;
+				case 0x60:
+					pi.proto = htons(ETH_P_IPV6);
+					break;
+				default:
+					tun->dev->stats.rx_dropped++;
+					kfree_skb(skb);
+					return ;//-EINVAL;
+				}
+			}
+
+			skb_reset_mac_header(skb);
+			skb->protocol = pi.proto;
+			skb->dev = tun->dev;
+			break;
+		case IFF_TAP:
+			skb->protocol = eth_type_trans(skb, tun->dev);
+			break;
+		}
+		
+		netif_receive_skb(skb);
+	}
+
+out:
+	tun_put(tun);
 }
 
 static long mytun_set_rb(struct tun_file *tfile,  unsigned long arg)
@@ -2486,6 +2568,7 @@ static int tun_chr_open(struct inode *inode, struct file * file)
 	sock_set_flag(&tfile->sk, SOCK_ZEROCOPY);
 	tfile->rbf = NULL;
 	tfile->tx_rbf = NULL;
+	tasklet_init(&tfile->tx_tasklet, tun_tasklet, (unsigned long)tfile);
 	return 0;
 }
 

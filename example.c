@@ -14,9 +14,10 @@
 #include <stdbool.h>
 
 #include<poll.h>
+#include <pthread.h>
 
 #include "ntrack_rbf.h"
-
+int tunfd;
 
 int tun_creat(char *dev, int flags) 
 { 
@@ -40,19 +41,46 @@ int tun_creat(char *dev, int flags)
 	 return fd; 
 }
 
+//testing wake up the poll task
+void* write_data(void* arg)
+{
+	rbf_t *tx_rbf = (rbf_t*)arg;
+	int ret;
+	if (!tx_rbf) {
+		exit(-1);
+	}
+	while(1) {
+		sleep(3);
+		//if tx is full of data, write to notify kernel to handle tx data, and wake up poll task
+		if  (!rbf_have_buff(tx_rbf)){
+			ret = write(tunfd, NULL, 0);
+			printf("write ret =%d \n", ret);	
+		}else {
+			printf("write rbf_have_buff\n");	
+		}
+	}
+}
 static int send_data(rbf_t *rbf)
 {
 	char *buf = NULL;
+	struct node_data *data;
+	int i;
 	buf = rbf_get_buff(rbf);
 	if (!buf) {
 		printf("no available buf \n");
 		return 0;
-	}
+	}	
+	//printf("have buf \n");
+	//rbf_dump_rw(rbf);
 	//todo: put data to buf
-	printf("have buf \n");
-	rbf_dump_rw(rbf);
+	//testing 
+	data = (struct node_data *)buf;
+	data->data_len = 100;
+	for (i = 0; i < data->data_len-2; i++) {
+		data->data_buf[i] = i;
+	}
 	rbf_release_buff(rbf);
-	return 1;
+	return (int)data->data_len;
 }
 
 static int handle_data(rbf_t *rbf)
@@ -78,6 +106,7 @@ static int handle_data(rbf_t *rbf)
 	   user_data = malloc(data_len - 2);
 	   memcpy(user_data, data+2, data_len-2);
 	   //todo: handle user_data
+	   
 	   free(user_data);
 	   rbf_release_data(rbf);
 	   total_len += data_len;
@@ -87,10 +116,10 @@ static int handle_data(rbf_t *rbf)
 
 int main( int argc, char **argv )  
 {  
-	int tunfd, size = 0, pageSize = 0, mmapSize = 0;  
+	int  size = 0, pageSize = 0, mmapSize = 0;  
 	int cmd, arg, use_ioctl = 0, use_poll= 0, normal = 0; 
-	rbf_t *rbf;
-	char *mapBuf = NULL;
+	rbf_t *rbf = NULL, *tx_rbf =NULL;
+	char *mapBuf = NULL, *buf = NULL;;
 	int ret;
 	
 	if (argc != 2) {
@@ -142,8 +171,8 @@ int main( int argc, char **argv )
 		perror("  setsockopt fail \n");
 		//return ret;
 	}
-	
-	mmapSize = 5000;
+
+	mmapSize = 10000;
 	struct ringbuf_req req;
 	req.mem_size = mmapSize;
 	req.packet_size = 2048;
@@ -197,10 +226,16 @@ int main( int argc, char **argv )
 	if (use_poll){
 		struct pollfd pollfds;
 		int timeout;
+		pthread_t write_thread;
 		
 		timeout = 5000;
 		pollfds.fd = tunfd;	
 		pollfds.events = POLLIN|POLLPRI|POLLOUT|POLLWRNORM;
+		ret = pthread_create(&write_thread, NULL, write_data, (void*)tx_rbf);
+		if (ret) {
+			printf("pthread_create fail , ret =%d\n", ret);
+			return -1;
+		}
 		for(;;){
 			switch(poll(&pollfds, 1, timeout)){
 			case -1:	
@@ -212,9 +247,9 @@ int main( int argc, char **argv )
 			case 0:
 				printf("time out \r\n");
 				if (rbf_have_data(rbf)) {
-				   printf("oh, there is  data in ringbuf, something wrong ?\n");//if timeout, before back to userspace, kernel also will poll to check if there have events, and return evnets .
+					printf("oh, there is  data in ringbuf, something wrong ?\n");//if timeout, before back to userspace, kernel also will poll to check if there have events, and return evnets .
+					rbf_dump_rw(rbf);
 				}
-				rbf_dump_rw(rbf);
 			break;
 			default:	
 				printf("sockfd have some event \r\n");
@@ -225,7 +260,9 @@ int main( int argc, char **argv )
 					}
 				}
 				if (pollfds.revents & (POLLOUT|POLLWRNORM)) {
-					send_data(tx_rbf);
+					while((ret =send_data(tx_rbf))){
+						printf("send_data , len =%d \n", ret);
+					}
 				}
 			break;
 			}
