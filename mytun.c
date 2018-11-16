@@ -1343,8 +1343,8 @@ static ssize_t tun_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	if (!tun)
 		return -EBADFD;
 
-	//add by mo 
-	if (tfile->tx_rbf) {
+	//add by mo ,if from->count == 0, it means use tx ringbuffer.
+	if (!from->count && tfile->tx_rbf) {
 		while((data = (struct node_data*)rbf_get_data(tfile->tx_rbf)) != NULL) {
 			rb_iov.iov_offset = offsetof(struct node_data, data_buf);
 			rb_iov.count = (ssize_t)data->data_len;
