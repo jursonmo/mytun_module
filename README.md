@@ -9,5 +9,6 @@ a tun module with mmap, reduce system call for higher performent
 1. Linux original Tun/tap has been built-in.  I don't want to recompile the kernel in order to turn Tun into an insertable kernel module. so i make another tun/tap module name "mytun", it can a Loadable module and can be work with original Tun/tap in kernel.if you want to use mytun, shoule insmmod mytun.ko first, and open ("/dev/net/mytun",O_RDWR) instead of open ("/dev/net/tun",O_RDWR),see example.c
 2. Set ringbuf size through ioctl
 3. Synchronization between kernel and user layer through IOCTL or poll
+4. reduce write system call: use tx_ringbuf send multiple packet in one write system call
 ### TODO
-1. reduce write system call
+1. use tasklet to put tx_ringbuf packet to protocol stack
