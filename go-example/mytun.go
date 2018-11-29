@@ -6,6 +6,7 @@ import (
 	"log"
 	"packet"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/jursonmo/go-tuntap/tuntap"
@@ -186,6 +187,12 @@ func main() {
 	for {
 		dataBuf := rb.GetPktData()
 		if dataBuf == nil {
+			//如果连续睡眠次数小于10，就通过就睡眠1毫秒来等待数据到来，没有数据导致的连续睡眠次数超过10，说明数据不多，就用syscall ioctl 来等待数据到来
+			if nodataNum < 10 {
+				nodataNum++
+				time.Sleep(time.Millisecond)
+				continue
+			}
 			r1, r2, syerr := syscall.Syscall(syscall.SYS_IOCTL, tun.tund.File().Fd(), uintptr(IOC_SEM_WAIT), uintptr(unsafe.Pointer(&arg)))
 			if syerr != 0 {
 				return //syscall.Errno(syerr)
@@ -195,6 +202,8 @@ func main() {
 			rb.show()
 			continue
 		}
+		nodataNum = 0 //重置
+
 		dataLen := binary.LittleEndian.Uint16(dataBuf)
 		if int(dataLen) > len(dataBuf) {
 			log.Printf("dataLen=%d, len(dataBuf)=%d", dataLen, len(dataBuf))
