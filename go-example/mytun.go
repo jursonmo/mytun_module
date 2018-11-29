@@ -184,6 +184,7 @@ func main() {
 	rb.encode(mapbuf)
 	rb.show()
 
+	nodataNum := 0
 	for {
 		dataBuf := rb.GetPktData()
 		if dataBuf == nil {
