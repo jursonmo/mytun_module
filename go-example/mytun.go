@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"packet"
+	"runtime"
 	"syscall"
 	"time"
 	"unsafe"
@@ -108,6 +109,7 @@ IOC_SEM_WAIT:
 #define TUN_IOC_SEM_WAIT _IOW('T', 231, unsigned int)
 */
 var IOC_SEM_WAIT int = 1<<30 | 84<<8 | 231<<0 | 4<<16 //T = 84, K = 75
+var IOC_SET_RBF int = 1<<30 | 84<<8 | 232<<0 | 4<<16  //T = 84, K = 75
 type mytun_t struct {
 	tund    *tuntap.Interface
 	devType int
@@ -162,21 +164,45 @@ func (rb *ringbuffer) show() {
 }
 
 func main() {
+	//test
+	fmt.Println("old GOMAXPROCS:", runtime.GOMAXPROCS(1))
+	for i := 0; i < 3; i++ {
+		go func(i int) {
+			for {
+				time.Sleep(time.Second * 3)
+				fmt.Printf("i=%d, time thread id:%d\n", i, syscall.Gettid())
+			}
+		}(i)
+	}
+
 	fmt.Println("IOC_SEM_WAIT:", IOC_SEM_WAIT)
 	var err error
 	tun := mytun_t{devType: 1}
 	tun.tund, err = tuntap.Open("mytundev", tuntap.DevKind(tun.devType), false, tuntap.SetUseMytun(true))
 	if err != nil {
+		fmt.Println("open fail:", err)
 		panic(err)
 		return
 	}
 
-	var arg int
-
 	size := 4096 * (1 << 6)
+
+	req := struct {
+		memSize uint32
+		pktSize uint32
+	}{uint32(size), 2048}
+	_, _, syerr := syscall.Syscall(syscall.SYS_IOCTL, tun.tund.File().Fd(), uintptr(IOC_SET_RBF), uintptr(unsafe.Pointer(&req)))
+	if syerr != 0 {
+		fmt.Println("syscall.Syscall ioctl IOC_SET_RBF fail")
+		return //syscall.Errno(syerr)
+	}
+	fmt.Println("syscall.Syscall ioctl IOC_SET_RBF ok")
+
+	var arg int
 	//size := 2048
 	mapbuf, err := syscall.Mmap(int(tun.tund.File().Fd()), 0, size, syscall.PROT_READ|syscall.PROT_WRITE, syscall.MAP_SHARED)
 	if err != nil {
+		fmt.Println("syscall Mmap fail:", err)
 		panic(err)
 	}
 	fmt.Printf("gomap mapbuf len=%d\n", len(mapbuf)) //output: 2048, equal mmap len
@@ -188,19 +214,22 @@ func main() {
 	for {
 		dataBuf := rb.GetPktData()
 		if dataBuf == nil {
-			//阻塞式系统调用syscall 会导致M休眠，会创建新的系统线程来执行P
+			//阻塞式系统调用syscall 会导致M休眠，会创建新的系统线程来执行P. sleep 只会挂起goroutine 不会挂起M
 			//如果连续睡眠次数小于10，就通过就睡眠1毫秒来等待数据到来，没有数据导致的连续睡眠次数超过10，说明数据不多，就用syscall ioctl 来等待数据到来
 			if nodataNum < 10 {
 				nodataNum++
 				time.Sleep(time.Millisecond)
 				continue
 			}
+			fmt.Println("=====thread id:", syscall.Gettid())
 			r1, r2, syerr := syscall.Syscall(syscall.SYS_IOCTL, tun.tund.File().Fd(), uintptr(IOC_SEM_WAIT), uintptr(unsafe.Pointer(&arg)))
 			if syerr != 0 {
+				fmt.Println("syscall.Syscall ioctl IOC_SEM_WAIT fail")
 				return //syscall.Errno(syerr)
 			}
 			_, _ = r1, r2
 			fmt.Println("syscall.Syscall ioctl ok")
+			fmt.Println("====222 thread id:", syscall.Gettid())
 			rb.show()
 			continue
 		}
