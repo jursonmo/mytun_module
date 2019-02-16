@@ -12,3 +12,4 @@ a tun module with mmap, reduce system call for higher performent
 4. reduce write system call: use tx_ringbuf send multiple packet in one write system call
 ### TODO
 1. use tasklet to put tx_ringbuf packet to protocol stack
+2. put skb hash(from skb_get_hash()) to node_data, then userspace can use the skb hash to do balance
