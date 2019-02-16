@@ -8,8 +8,9 @@ struct ringbuf_req {
 	unsigned int packet_size;
 };
 
-struct node_data {
-	uint16_t  data_len;
+struct node_data {	
+	uint16_t  data_len;	
+	//unsigned int skb_hash; // for balance 
 	uint8_t data_buf[0];
 };
 

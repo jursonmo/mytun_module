@@ -1352,7 +1352,7 @@ static ssize_t tun_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			ret  = rb_iov.count; //testing 
 			if (ret > 0 ) {
 				result += ret;
-			}
+			}			
 			rbf_release_data(tfile->tx_rbf);
 		}
 		tfile->sk.sk_write_space(&tfile->sk);
@@ -1509,6 +1509,7 @@ static bool put_to_ringbuf(struct tun_struct *tun,
 	//int vlan_offset = 0;
 	//int vlan_hlen = 0;
 	char *buf = NULL;
+	struct *node_data data;
 	uid16_t data_len =0;
 	ssize_t ret;
 	struct iov_iter iter;
@@ -1547,8 +1548,8 @@ static bool put_to_ringbuf(struct tun_struct *tun,
 	}
 	*/
 	iter.type = ITER_KVEC;
-	iter.iov_offset = 2;	
-	iter.count = rbf_node_size(rbf) -2; // the rest of space
+	iter.iov_offset = offsetof(struct node_data, data_buf);// 2;	
+	iter.count = rbf_node_size(rbf) -offsetof(struct node_data, data_buf)// 2; // the rest of space
 	memset(&kv, 0, sizeof(kv));	
 	kv.iov_len = rbf_node_size(rbf);
 	kv.iov_base = buf;
@@ -1562,8 +1563,11 @@ static bool put_to_ringbuf(struct tun_struct *tun,
 		consume_skb(skb);
 	//todo , get copy len 
 	//KUMAP_DEBUG("skb->len =%u, iov_offset=%lu, count=%lu,kvec->iov_len=%lu, nr_segs=%lu\n", skb->len, iter.iov_offset, iter.count, iter.kvec->iov_len, iter.nr_segs);
+	data = (struct *node_data)buf;
+	//data->skb_hash = skb_get_hash(skb);
 	data_len = (uint16_t)iter.iov_offset;
-	memcpy(buf, &data_len, sizeof(data_len));
+	data->data_len = data_len;
+	//memcpy(buf, &data_len, sizeof(data_len));	
 	rbf_release_buff(rbf);
 	spin_unlock(&tfile->rbf_lock);
 	kumap_device_notify(&tfile->notify);
