@@ -1,5 +1,5 @@
 # mytun_module
-a tun module with mmap, reduce system call for higher performent
+a tun module with mmap, reduce system call for higher performent. ( learn from packet_mmap ringbuf, tpacket_rcv)
 
 ###   higher performent, some way :
 1. single cpu:  use this mytun moudule to reduce read system call
