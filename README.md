@@ -13,5 +13,5 @@ a tun module with mmap, reduce system call for higher performent. ( learn from p
 ### TODO
 1. use tasklet to put tx_ringbuf packet to protocol stack
 2. put skb hash(from skb_get_hash()) to node_data, then userspace can use the skb hash to do balance
-3. ringBuffer  should cache_line_padding
+3. ringBuffer  should cache_line_padding(经常并发读写的两个变量不要在同一个cache line, 避免伪共享的方法是，cache_line_padding 隔开两个变量)
 
