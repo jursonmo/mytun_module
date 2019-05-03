@@ -10,6 +10,8 @@ a tun module with mmap, reduce system call for higher performent. ( learn from p
 2. Set ringbuf size through ioctl, use rx_ringbuf to get multiple packet in one read system call
 3. Synchronization between kernel and user layer through IOCTL or poll
 4. reduce write system call: use tx_ringbuf send multiple packet in one write system call
+5. no use rx_ringbuf, just get multiple packets from sk_receive_queue and put the packets to userspace in one read syscall
+
 ### TODO
 1. use tasklet to put tx_ringbuf packet to protocol stack
 2. put skb hash(from skb_get_hash()) to node_data, then userspace can use the skb hash to do balance
