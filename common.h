@@ -1,9 +1,11 @@
 #ifndef __COMMON_H__
 #define __COMMON_H__
 
+// make this is not conflict with that defined in include/uapi/linux/if_tun.h
 #define TUNGET_PAGE_SIZE _IOR('T', 230, unsigned int)
 #define TUN_IOC_SEM_WAIT _IOW('T', 231, unsigned int)
 #define  TUNSET_RBF  _IOW('T', 232, unsigned int)
+#define  TUNSET_MULTI_PKT  _IOW('T', 233, unsigned int)
 
 #ifdef __KERNEL__
 

@@ -176,6 +176,9 @@ struct tun_file {
 	rbf_t *tx_rbf;
 	struct tasklet_struct tx_tasklet;
 	unsigned long mmap_buf_size;
+
+	//put sk_receive_queue multiple packet to userspace in one read syscall
+	unsigned int multi_pkt;
 };
 
 struct tun_flow_entry {
@@ -1336,7 +1339,7 @@ static ssize_t tun_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	ssize_t result;
 	//add by mo
 	struct node_data* data=NULL;
-	int noblock = 1;
+	//int noblock = 1;
 	struct iov_iter rb_iov;
 	ssize_t ret;
 	
@@ -1352,7 +1355,7 @@ static ssize_t tun_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 			ret  = rb_iov.count; //testing 
 			if (ret > 0 ) {
 				result += ret;
-			}			
+			}
 			rbf_release_data(tfile->tx_rbf);
 		}
 		tfile->sk.sk_write_space(&tfile->sk);
@@ -1509,7 +1512,7 @@ static bool put_to_ringbuf(struct tun_struct *tun,
 	//int vlan_offset = 0;
 	//int vlan_hlen = 0;
 	char *buf = NULL;
-	struct *node_data data;
+	struct node_data *data;
 	uid16_t data_len =0;
 	ssize_t ret;
 	struct iov_iter iter;
@@ -1549,7 +1552,7 @@ static bool put_to_ringbuf(struct tun_struct *tun,
 	*/
 	iter.type = ITER_KVEC;
 	iter.iov_offset = offsetof(struct node_data, data_buf);// 2;	
-	iter.count = rbf_node_size(rbf) -offsetof(struct node_data, data_buf)// 2; // the rest of space
+	iter.count = rbf_node_size(rbf) -offsetof(struct node_data, data_buf);// 2; // the rest of space
 	memset(&kv, 0, sizeof(kv));	
 	kv.iov_len = rbf_node_size(rbf);
 	kv.iov_base = buf;
@@ -1563,7 +1566,7 @@ static bool put_to_ringbuf(struct tun_struct *tun,
 		consume_skb(skb);
 	//todo , get copy len 
 	//KUMAP_DEBUG("skb->len =%u, iov_offset=%lu, count=%lu,kvec->iov_len=%lu, nr_segs=%lu\n", skb->len, iter.iov_offset, iter.count, iter.kvec->iov_len, iter.nr_segs);
-	data = (struct *node_data)buf;
+	data = (struct node_data *)buf;
 	//data->skb_hash = skb_get_hash(skb);
 	data_len = (uint16_t)iter.iov_offset;
 	data->data_len = data_len;
@@ -1580,14 +1583,58 @@ static ssize_t tun_do_read(struct tun_struct *tun, struct tun_file *tfile,
 			   int noblock)
 {
 	struct sk_buff *skb;
-	ssize_t ret;
+	ssize_t ret, total = 0;
 	int peeked, err, off = 0;
-
+	char *len_p;
+	int i = 0;
+	//unsigned int flag = 0;
+	
 	tun_debug(KERN_INFO, tun, "tun_do_read\n");
 
 	if (!iov_iter_count(to))
 		return 0;
 
+	//add by mo: if have set TUNSET_MULTI_PKT, read more pkt with MSG_DONTWAIT.
+	if  (tfile->multi_pkt && to->type == ITER_IOVEC && to->nr_segs == 1){
+		for (i = 0; i< tfile->multi_pkt; i++ ){
+			/*noblock or getting second skb will be MSG_DONTWAIT*/
+			/*
+			if (noblock || i ) 
+				flag = MSG_DONTWAIT;
+			else 
+				flag = 0;
+			*/
+			skb = __skb_recv_datagram(tfile->socket.sk,  (noblock || i ) ? MSG_DONTWAIT:0,
+			  &peeked, &off, &err);
+			if (!skb)
+				break;
+			
+			len_p = to->iov->iov_base+to->iov_offset;
+			to->iov_offset += 2;	//reserver 2 byte to store pkt len
+			to->count -=2; 
+	
+			ret = tun_put_user(tun, tfile, skb, to);
+			if (unlikely(ret < 0)){
+				kfree_skb(skb);
+				break;
+			}else{
+				consume_skb(skb);
+				total +=ret;
+				//set this skb len to iov
+				memcpy(len_p, &ret, 2); 
+			}
+			
+			//make sure buf can store next packet, if not, stop getting pkt
+			if (iov_iter_count(to) < 2048){
+				break;
+			}
+		}
+		
+	    return total;
+	}
+	//end by mo 
+
+	
 	/* Read frames from queue */
 	skb = __skb_recv_datagram(tfile->socket.sk, noblock ? MSG_DONTWAIT : 0,
 				  &peeked, &off, &err);
@@ -2194,6 +2241,10 @@ static long mytun_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		case TUNSET_RBF:
 			return mytun_set_rb(tfile, arg);
 			break;
+		case TUNSET_MULTI_PKT:
+			copy_from_user(&tfile->multi_pkt, (void __user*)arg, sizeof(tfile->multi_pkt));
+			printk("mytun set  multi_pkt =%d\n", tfile->multi_pkt);
+			return 0;
 		default:
 			KUMAP_ERROR("unknow ioctl cmd: %d, %lu\n", cmd, arg);
 			break;
@@ -2217,7 +2268,7 @@ static long __tun_chr_ioctl(struct file *file, unsigned int cmd,
 	int ret;
 
 	//add by mo
-	if (cmd == TUN_IOC_SEM_WAIT || cmd == TUNGET_PAGE_SIZE || cmd == TUNSET_RBF) {
+	if (cmd == TUN_IOC_SEM_WAIT || cmd == TUNGET_PAGE_SIZE || cmd == TUNSET_RBF || cmd == TUNSET_MULTI_PKT) {
 		return mytun_ioctl(file, cmd, arg);
 	}
 	//end by mo
