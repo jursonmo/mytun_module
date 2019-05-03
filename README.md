@@ -19,4 +19,7 @@ a tun module with mmap, reduce system call for higher performent. ( learn from p
 
 ### 现象
   从pprof 看，写的系统调用比读的系统调用要更加耗时，为啥，因为tun fd的读read是从 sk_receive_queue直接读数据的，如果没有数据可读，schedule(),这样后的cpu 耗时就不会统计到read 的系统调用里了，也就是说read的系统调用耗时统计的是陷入内核、拷贝数据到应用层消耗cpu的时间。但是tun fd write 就不一样了，write时，相当于tun 网卡接受到数据并且走协议栈处理，这个过程消耗的cpu时间都算到write系统调用里，所以写的系统调用比读的系统调用要更加耗时。
-  解决方法，tun fd write 时也创建一个缓存队列，write是只需把数据放到队列里并创建taskle任务后可以返回到应用层，内核会用taskle去发送这个队列的数据。这样写系统调用就不会显示太耗时。
+
+解决方法:
+  1. tun fd write 时也创建一个缓存队列，write是只需把数据放到队列里并创建taskle任务后可以返回到应用层，内核会用taskle去发送这个队列的数据。这样写系统调用就不会显示太耗时。
+  2. 在tun 网卡上开启rps,  把部分软中断的消耗分摊到其他cpu上，但是这个只有多流测试的时候才可能分摊，因为是根据五元组hash分摊的，且分摊的效果不确定。
