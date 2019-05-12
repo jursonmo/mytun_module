@@ -2573,11 +2573,12 @@ static long tun_chr_compat_ioctl(struct file *file,
 }
 #endif /* CONFIG_COMPAT */
 
+//fcntl(fd, F_SETFL, Oflags | FASYNC); -->F_SETFL-->setfl(fd, filp, arg);-->filp->f_op->fasync
 static int tun_chr_fasync(int fd, struct file *file, int on)
 {
 	struct tun_file *tfile = file->private_data;
 	int ret;
-
+	//multiple call fcntl(fd, F_SETFL, Oflags | FASYNC) will multiple call fasync_helper, but it is ok, maybe we want to change pid
 	if ((ret = fasync_helper(fd, file, on, &tfile->fasync)) < 0)
 		goto out;
 
