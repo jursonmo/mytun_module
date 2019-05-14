@@ -2685,10 +2685,11 @@ static int tun_chr_mmap(struct file *file, struct vm_area_struct *vma)
 
 		return -ENOMEM;
 	}
-	vma->vm_flags |= VM_IO;
-	//vma->vm_flags |= VM_RESERVED;
+	vma->vm_flags |= VM_IO;PG_reserved;SetPageReserved
+	//vma->vm_flags |= VM_RESERVED;//https://lwn.net/Articles/161204/ don't swap out, but now no use it any more
 	
 	//order = get_order(rbf_size(tfile->rbf))+1;
+	//if addr is alloc by kmalloc, it means that addr is contiguous memory, addr can be mmap by one remap_pfn_range
 	order = get_order(tfile->mmap_buf_size);
 	for (i = 0; i < 1<< order && start + PAGE_SIZE <= end; i++ ){
 		res = remap_pfn_range(vma,
@@ -2700,6 +2701,7 @@ static int tun_chr_mmap(struct file *file, struct vm_area_struct *vma)
 			printk("mmap fail: i=%d, res=%d\n", i, res);
 			return -ENOMEM;;
 		}
+		//SetPageReserved(virt_to_page(addr));//set flag PG_reserved
 		addr +=PAGE_SIZE;
 		start += PAGE_SIZE;
 	}
