@@ -13,7 +13,7 @@ a tun module with mmap, reduce system call for higher performent. ( learn from p
 5. no use rx_ringbuf, just get multiple packets from sk_receive_queue and put the packets to userspace in one read syscall
 
 ### 现象
-  从pprof 看，写的系统调用比读的系统调用要更加耗时，为啥，因为tun fd的读read是从 sk_receive_queue直接读数据的，如果没有数据可读，schedule(),这样后的cpu 耗时就不会统计到read 的系统调用里了，也就是说read的系统调用耗时统计的是陷入内核、拷贝数据到应用层消耗cpu的时间。但是tun fd write 就不一样了，write时，相当于tun 网卡接受到数据并且走协议栈处理，这个过程消耗的cpu时间都算到write系统调用里，所以写的系统调用比读的系统调用要更加耗时。(linux 4.11.x 版本后，增加 tun_rx_batched、 linux 4.15.x 开始增加了tun napi 功能 ，都可以缓解tun_fd write 占用CPU 太多的问题)
+  从pprof 看，写的系统调用比读的系统调用要更加耗时，为啥，因为tun fd的读read是从 sk_receive_queue直接读数据的，如果没有数据可读，schedule(),这样后的cpu 耗时就不会统计到read 的系统调用里了，也就是说read的系统调用耗时统计的是陷入内核、拷贝数据到应用层消耗cpu的时间。但是tun fd write 就不一样了，write时，相当于tun 网卡接受到数据并且走协议栈处理，这个过程消耗的cpu时间都算到write系统调用里，所以写的系统调用比读的系统调用要更加耗时。(linux 4.11.x 版本后，增加 tun_rx_batched、 linux 4.15.x 开始增加了tun napi 功能 ，都可以缓解tun_fd write系统调用 占用CPU 太多的问题)
 
 解决方法:
   1. tun fd write 时也创建一个缓存队列，write是只需把数据放到队列里并创建taskle任务后可以返回到应用层，内核会用taskle去发送这个队列的数据(参考ifb)。这样写系统调用就不会显示太耗时。
